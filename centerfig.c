@@ -5,8 +5,6 @@
 #include <string.h>
 #include <signal.h>
 
-
-
 int get_window_size(int *rows, int *cols) {
   struct winsize ws;
   /*
@@ -29,26 +27,11 @@ int get_window_size(int *rows, int *cols) {
   return 0;
 }
 
-void show_cursor(void) {
-  printf("\x1b[?25h\x1b[2J\x1b[H");
-  fflush(stdout);
-}
-
-void handle_sigint(int sig) {
-  (void)sig;
-  show_cursor();
-  _exit(0);
-}
-
 //===========================================================
-
 
 int main() {
   int rows, cols;
   int c_row, c_col;
-
-  atexit(show_cursor);
-  signal(SIGINT, handle_sigint);
 
   printf("\x1b[?25l");
   fflush(stdout);
@@ -68,3 +51,14 @@ int main() {
   }
   return 0;
 }
+
+
+
+
+
+
+
+
+
+
+
