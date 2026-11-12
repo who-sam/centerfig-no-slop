@@ -24,8 +24,6 @@ static struct termios orig;
 static void signal_handler(int signo) {
   switch (signo) {
   case SIGINT:
-    running = 0;
-    break;
   case SIGTERM:
     running = 0;
     break;
@@ -110,7 +108,7 @@ int main(void) {
   struct termios copy = orig;
   copy.c_lflag &= ~(ICANON | ECHO);
   copy.c_cc[VMIN] = 0;
-  copy.c_cc[VTIME] = 0;
+  copy.c_cc[VTIME] = 1;
 
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &copy) == -1) {
     perror("tcsetattr");
