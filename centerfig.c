@@ -1,11 +1,14 @@
+#define _POSIX_C_SOURCE 200809L
+#include <bits/time.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
-#include <errno.h>
 
 static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 1;
@@ -59,9 +62,30 @@ static int get_window_size(int *rows, int *cols) {
   return 0;
 }
 
-static void draw(int col, int row) {
+static long long diff_ns(struct timespec start, struct timespec end) {
+  return (long long)(end.tv_sec - start.tv_sec) * 1000000000LL +
+         (end.tv_nsec - start.tv_nsec);
+}
+
+static void draw(int rows, int cols) {
+  int c_row = rows / 2 + 3;
+  int c_col = (cols - (int)strlen(msg)) / 2 + 1;
+  if (c_col < 1)
+    c_col = 1;
   printf("\x1b[2J\x1b[H");
-  printf("\x1b[%d;%dH%s", row, col, msg);
+  printf("\x1b[%d;%dH%s", c_row, c_col, msg);
+  fflush(stdout);
+}
+
+static void draw_timer(int rows, int cols, long long total) {
+  int c_row = rows / 2;
+  int c_col = (cols - 8) / 2 + 1;
+  if (c_col < 1)
+    c_col = 1;
+  long long hours = total / 3600;
+  long long mins = (total % 3600) / 60;
+  long long secs = total % 60;
+  printf("\x1b[%d;%dH%02lld:%02lld:%02lld", c_row, c_col, hours, mins, secs);
   fflush(stdout);
 }
 
@@ -69,8 +93,16 @@ static void draw(int col, int row) {
 
 int main(void) {
   int rows, cols;
-  int c_row, c_col;
   char key;
+  long long last_shown = -1;
+
+  struct timespec start, now;
+  struct timespec delay = {0, 20 * 1000000LL};
+  //   struct timespec {
+  //     time_t tv_sec;   // whole seconds
+  //     long   tv_nsec;  // nanoseconds (0 to 999,999,999)
+  //=======================
+  // };
 
   if (tcgetattr(STDIN_FILENO, &orig) == -1) {
     perror("tcgetattr");
@@ -118,20 +150,29 @@ int main(void) {
   printf("\x1b[?25l");
   fflush(stdout);
 
+  if (clock_gettime(CLOCK_MONOTONIC, &start)) {
+    perror("clock_gettime");
+    return 1;
+  }
+
+  //=======================
   while (running) {
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long long total = diff_ns(start, now) / 1000000000LL;
 
     if (resized) {
       if (get_window_size(&rows, &cols) == -1)
         return 1;
 
-      c_row = rows / 2;
-      c_col = (cols - (int)strlen(msg)) / 2 + 1;
-      if (c_col < 1)
-        c_col = 1;
-
-      draw(c_col, c_row);
+      draw(rows, cols);
+      draw_timer(rows, cols, total);
 
       resized = 0;
+    }
+
+    if (total != last_shown) {
+      draw_timer(rows, cols, total);
+      last_shown = total;
     }
 
     ssize_t n = read(STDIN_FILENO, &key, 1);
@@ -139,6 +180,9 @@ int main(void) {
       break;
     if (n == -1 && errno != EINTR)
       break; // real error
+
+    nanosleep(&delay, NULL);
   }
+  //=======================
   return 0;
 }
