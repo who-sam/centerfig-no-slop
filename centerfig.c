@@ -1,5 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-#include <bits/time.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -17,11 +16,9 @@ static struct termios orig;
 // struct termios {
 //     tcflag_t c_iflag;   // input flags    (how incoming bytes are processed)
 //     tcflag_t c_oflag;   // output flags   (how outgoing bytes are processed)
-//     tcflag_t c_cflag;   // control flags  (baud, data bits, parity... mostly
-//     serial) tcflag_t c_lflag;   // local flags    (echo, canonical mode,
-//     signals) cc_t     c_cc[NCCS];// special characters + read() timing
-//     (VMIN/VTIME)
-//     // (plus speed fields on some systems; use the cf* functions for those)
+//     tcflag_t c_cflag;   // control flags  (baud, data bits, parity... mostly serial)
+//     tcflag_t c_lflag;   // local flags    (echo, canonical mode, signals)
+//     cc_t     c_cc[NCCS];// special characters + read() timing (VMIN/VTIME)
 // };
 
 static void signal_handler(int signo) {
@@ -92,16 +89,14 @@ static void draw_timer(int rows, int cols, long long total) {
 //===========================================================
 
 int main(void) {
-  int rows, cols;
+  int rows = 0 , cols = 0;
   char key;
   long long last_shown = -1;
 
   struct timespec start, now;
-  struct timespec delay = {0, 20 * 1000000LL};
   //   struct timespec {
   //     time_t tv_sec;   // whole seconds
   //     long   tv_nsec;  // nanoseconds (0 to 999,999,999)
-  //=======================
   // };
 
   if (tcgetattr(STDIN_FILENO, &orig) == -1) {
@@ -157,7 +152,10 @@ int main(void) {
 
   //=======================
   while (running) {
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (clock_gettime(CLOCK_MONOTONIC, &now)) {
+      perror("clock_gettime");
+      return 1;
+    }
     long long total = diff_ns(start, now) / 1000000000LL;
 
     if (resized) {
@@ -165,8 +163,8 @@ int main(void) {
         return 1;
 
       draw(rows, cols);
-      draw_timer(rows, cols, total);
 
+      last_shown = -1;        // so it redraws in the next if
       resized = 0;
     }
 
@@ -181,7 +179,6 @@ int main(void) {
     if (n == -1 && errno != EINTR)
       break; // real error
 
-    nanosleep(&delay, NULL);
   }
   //=======================
   return 0;
