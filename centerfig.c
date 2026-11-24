@@ -13,13 +13,15 @@ static volatile sig_atomic_t running = 1;
 static volatile sig_atomic_t resized = 1;
 static const char *msg = "Hello";
 static struct termios orig;
-// struct termios {
-//     tcflag_t c_iflag;   // input flags    (how incoming bytes are processed)
-//     tcflag_t c_oflag;   // output flags   (how outgoing bytes are processed)
-//     tcflag_t c_cflag;   // control flags  (baud, data bits, parity... mostly serial)
-//     tcflag_t c_lflag;   // local flags    (echo, canonical mode, signals)
-//     cc_t     c_cc[NCCS];// special characters + read() timing (VMIN/VTIME)
-// };
+/*
+struct termios {
+    tcflag_t c_iflag;   // input flags    (how incoming bytes are processed)
+    tcflag_t c_oflag;   // output flags   (how outgoing bytes are processed)
+    tcflag_t c_cflag;   // control flags  (baud, data bits, parity... mostly serial)
+    tcflag_t c_lflag;   // local flags    (echo, canonical mode, signals)
+    cc_t     c_cc[NCCS];// special characters + read() timing (VMIN/VTIME)
+};
+*/
 
 static void signal_handler(int signo) {
   switch (signo) {
@@ -37,6 +39,53 @@ static void cleanup(void) {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig);
   printf("\x1b[?25h\x1b[2J\x1b[H");
   fflush(stdout);
+}
+
+static int setup_signals(void) {
+  static const int sigs[] = {SIGINT, SIGTERM, SIGWINCH};
+  struct sigaction sa;
+  // struct sigaction {
+  //   void     (*sa_handler)(int);                         // simple handler
+  //   void     (*sa_sigaction)(int, siginfo_t *, void *);  // advanced handler
+  //   (needs SA_SIGINFO) sigset_t   sa_mask; // extra signals to block during
+  //   handler int        sa_flags;                                 // option
+  //   switches
+  // };
+  memset(&sa, 0, sizeof sa); // zero everything
+  sa.sa_handler = signal_handler;
+  sigemptyset(&sa.sa_mask); // block no extra signals
+  sa.sa_flags = 0;
+
+  for (size_t i = 0; i < sizeof sigs / sizeof sigs[0]; i++) {
+    if (sigaction(sigs[i], &sa, NULL) == -1) {
+      perror("sigaction");
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static int enter_raw_mode(void) {
+  if (tcgetattr(STDIN_FILENO, &orig) == -1) {
+    perror("tcgetattr");
+    return -1;
+  }
+
+  atexit(cleanup);
+
+  struct termios copy = orig;
+  copy.c_lflag &= ~(ICANON | ECHO);
+  copy.c_cc[VMIN] = 0;
+  copy.c_cc[VTIME] = 1;
+
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &copy) == -1) {
+    perror("tcsetattr");
+    return -1;
+  }
+
+  printf("\x1b[?25l");
+  fflush(stdout);
+  return 0;
 }
 
 static int get_window_size(int *rows, int *cols) {
@@ -99,51 +148,9 @@ int main(void) {
   //     long   tv_nsec;  // nanoseconds (0 to 999,999,999)
   // };
 
-  if (tcgetattr(STDIN_FILENO, &orig) == -1) {
-    perror("tcgetattr");
-    return 1;
-  }
+if (enter_raw_mode() == -1) return 1;
+if (setup_signals() == -1) return 1;
 
-  atexit(cleanup);
-
-  struct sigaction sa;
-  // struct sigaction {
-  //   void     (*sa_handler)(int);                         // simple handler
-  //   void     (*sa_sigaction)(int, siginfo_t *, void *);  // advanced handler
-  //   (needs SA_SIGINFO) sigset_t   sa_mask; // extra signals to block during
-  //   handler int        sa_flags;                                 // option
-  //   switches
-  // };
-  memset(&sa, 0, sizeof sa); // zero everything
-  sa.sa_handler = signal_handler;
-  sigemptyset(&sa.sa_mask); // block no extra signals
-  sa.sa_flags = 0;
-
-  if (sigaction(SIGINT, &sa, NULL) == -1) {
-    perror("sigaction");
-    return 1;
-  }
-  if (sigaction(SIGTERM, &sa, NULL) == -1) {
-    perror("sigaction");
-    return 1;
-  }
-  if (sigaction(SIGWINCH, &sa, NULL) == -1) {
-    perror("sigaction");
-    return 1;
-  }
-
-  struct termios copy = orig;
-  copy.c_lflag &= ~(ICANON | ECHO);
-  copy.c_cc[VMIN] = 0;
-  copy.c_cc[VTIME] = 1;
-
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &copy) == -1) {
-    perror("tcsetattr");
-    return 1;
-  }
-
-  printf("\x1b[?25l");
-  fflush(stdout);
 
   if (clock_gettime(CLOCK_MONOTONIC, &start)) {
     perror("clock_gettime");
